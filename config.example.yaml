@@ -714,19 +714,23 @@ skill_evolution:
 # ============================================================================
 # Checkpointer Configuration
 # ============================================================================
-# Configure state persistence for the embedded DeerFlowClient.
-# The LangGraph Server manages its own state persistence separately
-# via the server infrastructure (this setting does not affect it).
+# Configure LangGraph state (conversation checkpoint) persistence.
 #
-# When configured, DeerFlowClient will automatically use this checkpointer,
-# enabling multi-turn conversations to persist across process restarts.
+# Used by:
+#   - Gateway mode (make dev-pro): checkpointer + thread store are both driven
+#     by this setting, enabling multi-Pod shared state.
+#   - DeerFlowClient (embedded): enables multi-turn persistence across restarts.
+#   - LangGraph Server (make dev): manages its own persistence separately;
+#     this setting does NOT affect it.
 #
 # Supported types:
 #   memory   - In-process only. State is lost when the process exits. (default)
-#   sqlite   - File-based SQLite persistence. Survives restarts.
+#   sqlite   - File-based SQLite persistence. Single-process only.
 #              Requires: uv add langgraph-checkpoint-sqlite
-#   postgres - PostgreSQL persistence. Suitable for multi-process deployments.
+#   postgres - PostgreSQL persistence. Multi-Pod / production deployments.
 #              Requires: uv add langgraph-checkpoint-postgres psycopg[binary] psycopg-pool
+#              AsyncPostgresSaver.setup() auto-creates the checkpoints tables on startup.
+#              AsyncPostgresStore.setup() auto-creates the store tables on startup.
 #
 # Examples:
 #
@@ -739,7 +743,7 @@ checkpointer:
   type: sqlite
   connection_string: checkpoints.db
 #
-# PostgreSQL (multi-process, production):
+# PostgreSQL (multi-Pod, production):
 # checkpointer:
 #   type: postgres
 #   connection_string: postgresql://user:password@localhost:5432/deerflow

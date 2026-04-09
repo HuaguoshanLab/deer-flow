@@ -17,10 +17,15 @@ dependencies = [
     "langgraph-sdk>=0.1.51",
     "markdown-to-mrkdwn>=0.3.1",
     "wecom-aibot-python-sdk>=0.1.6",
+    "redis[asyncio]>=7.4.0",
 ]
 
 [dependency-groups]
-dev = ["pytest>=8.0.0", "ruff>=0.14.11"]
+dev = [
+    "fakeredis>=2.34.1",
+    "pytest>=8.0.0",
+    "ruff>=0.14.11",
+]
 
 [tool.uv.workspace]
 members = ["packages/harness"]

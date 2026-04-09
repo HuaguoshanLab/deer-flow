@@ -26,14 +26,30 @@ async def langgraph_runtime(app: FastAPI) -> AsyncGenerator[None, None]:
             yield
     """
     from deerflow.agents.checkpointer.async_provider import make_checkpointer
+    from deerflow.config.stream_bridge_config import get_stream_bridge_config
     from deerflow.runtime import make_store, make_stream_bridge
 
     async with AsyncExitStack() as stack:
         app.state.stream_bridge = await stack.enter_async_context(make_stream_bridge())
         app.state.checkpointer = await stack.enter_async_context(make_checkpointer())
         app.state.store = await stack.enter_async_context(make_store())
-        app.state.run_manager = RunManager()
-        yield
+
+        # 若 stream_bridge 配置为 redis，使用 RedisRunManager 实现跨 Pod run 管理
+        bridge_config = get_stream_bridge_config()
+        if bridge_config is not None and bridge_config.type == "redis":
+            from deerflow.runtime.runs.redis_manager import RedisRunManager
+
+            redis_url = bridge_config.redis_url or "redis://localhost:6379/0"
+            run_manager = RedisRunManager(redis_url=redis_url)
+            await run_manager.start()
+            app.state.run_manager = run_manager
+            try:
+                yield
+            finally:
+                await run_manager.stop()
+        else:
+            app.state.run_manager = RunManager()
+            yield
 
 
 # ---------------------------------------------------------------------------

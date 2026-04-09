@@ -745,6 +745,25 @@ checkpointer:
 #   connection_string: postgresql://user:password@localhost:5432/deerflow
 
 # ============================================================================
+# Stream Bridge Configuration
+# ============================================================================
+# Controls how agent execution events are streamed to SSE consumers.
+# In single-process deployments the default in-memory bridge is sufficient.
+# For multi-Pod deployments, switch to Redis so any Pod can consume any run's events.
+#
+# Requires: uv add "redis[asyncio]"
+#
+# In-memory (default — single process only):
+# stream_bridge:
+#   type: memory
+#   queue_maxsize: 256
+#
+# Redis (multi-Pod, production):
+# stream_bridge:
+#   type: redis
+#   redis_url: redis://localhost:6379/0
+
+# ============================================================================
 # IM Channels Configuration
 # ============================================================================
 # Connect DeerFlow to external messaging platforms.

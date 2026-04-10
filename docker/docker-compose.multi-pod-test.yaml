@@ -62,7 +62,7 @@ services:
       context: ../
       dockerfile: backend/Dockerfile
       args:
-        APT_MIRROR: ${APT_MIRROR:-}
+        APT_MIRROR: ${APT_MIRROR:-mirrors.aliyun.com}
         UV_IMAGE: ${UV_IMAGE:-ghcr.io/astral-sh/uv:0.7.20}
         UV_INDEX_URL: ${UV_INDEX_URL:-https://mirrors.aliyun.com/pypi/simple}
     container_name: deer-flow-test-gateway-1
@@ -101,7 +101,7 @@ services:
       context: ../
       dockerfile: backend/Dockerfile
       args:
-        APT_MIRROR: ${APT_MIRROR:-}
+        APT_MIRROR: ${APT_MIRROR:-mirrors.aliyun.com}
         UV_IMAGE: ${UV_IMAGE:-ghcr.io/astral-sh/uv:0.7.20}
         UV_INDEX_URL: ${UV_INDEX_URL:-https://mirrors.aliyun.com/pypi/simple}
     container_name: deer-flow-test-gateway-2
@@ -141,7 +141,7 @@ services:
       target: prod
       args:
         PNPM_STORE_PATH: ${PNPM_STORE_PATH:-/root/.local/share/pnpm/store}
-        NPM_REGISTRY: ${NPM_REGISTRY:-}
+        NPM_REGISTRY: ${NPM_REGISTRY:-https://registry.npmmirror.com/}
     container_name: deer-flow-test-frontend
     environment:
       - BETTER_AUTH_SECRET=${BETTER_AUTH_SECRET:-test-secret-for-local-validation}

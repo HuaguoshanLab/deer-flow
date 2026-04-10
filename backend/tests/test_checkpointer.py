@@ -242,6 +242,41 @@ class TestGetCheckpointer:
         mock_saver.setup.assert_awaited_once()
 
     @pytest.mark.anyio
+    async def test_postgres_async_retries_when_migration_race_happens(self):
+        """Async Postgres checkpointer 在迁移建表竞争时应自动重试。"""
+        from deerflow.agents.checkpointer.async_provider import make_checkpointer
+
+        mock_config = MagicMock()
+        mock_config.checkpointer = CheckpointerConfig(type="postgres", connection_string="postgresql://localhost/db")
+
+        mock_saver = AsyncMock()
+        mock_saver.setup = AsyncMock(
+            side_effect=[
+                Exception('duplicate key value violates unique constraint "pg_type_typname_nsp_index" (checkpoint_migrations)'),
+                None,
+            ]
+        )
+        mock_cm = AsyncMock()
+        mock_cm.__aenter__.return_value = mock_saver
+        mock_cm.__aexit__.return_value = False
+
+        mock_saver_cls = MagicMock()
+        mock_saver_cls.from_conn_string.return_value = mock_cm
+
+        mock_module = MagicMock()
+        mock_module.AsyncPostgresSaver = mock_saver_cls
+
+        with (
+            patch("deerflow.agents.checkpointer.async_provider.get_app_config", return_value=mock_config),
+            patch.dict(sys.modules, {"langgraph.checkpoint.postgres.aio": mock_module}),
+        ):
+            async with make_checkpointer() as saver:
+                assert saver is mock_saver
+
+        mock_saver_cls.from_conn_string.assert_called_once_with("postgresql://localhost/db")
+        assert mock_saver.setup.await_count == 2
+
+    @pytest.mark.anyio
     async def test_postgres_async_raises_when_connection_string_missing(self):
         """Async Postgres checkpointer 缺少 connection_string 时应抛出 ValueError。"""
         from deerflow.agents.checkpointer.async_provider import make_checkpointer

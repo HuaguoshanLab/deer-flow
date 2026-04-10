@@ -39,6 +39,35 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 
+def _is_postgres_setup_race(exc: BaseException) -> bool:
+    message = str(exc)
+    return any(
+        marker in message
+        for marker in (
+            "checkpoint_migrations",
+            "pg_type_typname_nsp_index",
+            "duplicate key value violates unique constraint",
+        )
+    )
+
+
+async def _setup_postgres_with_retry(saver, retries: int = 3, delay_seconds: float = 0.2) -> None:
+    for attempt in range(1, retries + 1):
+        try:
+            await saver.setup()
+            return
+        except Exception as exc:  # noqa: BLE001
+            if attempt < retries and _is_postgres_setup_race(exc):
+                logger.warning(
+                    "Postgres checkpointer setup hit migration race (attempt %s/%s), retrying",
+                    attempt,
+                    retries,
+                )
+                await asyncio.sleep(delay_seconds * attempt)
+                continue
+            raise
+
+
 @contextlib.asynccontextmanager
 async def _async_checkpointer(config) -> AsyncIterator[Checkpointer]:
     """Async context manager that constructs and tears down a checkpointer."""
@@ -71,7 +100,7 @@ async def _async_checkpointer(config) -> AsyncIterator[Checkpointer]:
             raise ValueError(POSTGRES_CONN_REQUIRED)
 
         async with AsyncPostgresSaver.from_conn_string(config.connection_string) as saver:
-            await saver.setup()
+            await _setup_postgres_with_retry(saver)
             yield saver
         return
 

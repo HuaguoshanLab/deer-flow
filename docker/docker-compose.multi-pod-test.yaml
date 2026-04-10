@@ -141,7 +141,9 @@ services:
       target: prod
       args:
         PNPM_STORE_PATH: ${PNPM_STORE_PATH:-/root/.local/share/pnpm/store}
-        NPM_REGISTRY: ${NPM_REGISTRY:-https://registry.npmmirror.com/}
+        NPM_REGISTRY: ${NPM_REGISTRY:-https://registry.npmmirror.com}
+        # NEXT_PUBLIC_* 变量必须在构建时传入，运行时 environment 无效
+        NEXT_PUBLIC_LANGGRAPH_BASE_URL: /api/langgraph-compat
     container_name: deer-flow-test-frontend
     environment:
       - BETTER_AUTH_SECRET=${BETTER_AUTH_SECRET:-test-secret-for-local-validation}

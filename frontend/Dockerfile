@@ -30,9 +30,15 @@ EXPOSE 3000
 
 # ── Builder: install + compile Next.js ───────────────────────────────────────
 FROM base AS builder
+# NEXT_PUBLIC_* 变量在构建时静态内联，必须作为 build arg 传入
+ARG NEXT_PUBLIC_LANGGRAPH_BASE_URL
+ARG NEXT_PUBLIC_BACKEND_BASE_URL
 RUN cd /app/frontend && pnpm install --frozen-lockfile
 # Skip env validation — runtime vars are injected by nginx/container
-RUN cd /app/frontend && SKIP_ENV_VALIDATION=1 pnpm build
+RUN cd /app/frontend && SKIP_ENV_VALIDATION=1 \
+    NEXT_PUBLIC_LANGGRAPH_BASE_URL=${NEXT_PUBLIC_LANGGRAPH_BASE_URL} \
+    NEXT_PUBLIC_BACKEND_BASE_URL=${NEXT_PUBLIC_BACKEND_BASE_URL} \
+    pnpm build
 
 # ── Prod: minimal runtime with pre-built output ───────────────────────────────
 FROM node:22-alpine AS prod

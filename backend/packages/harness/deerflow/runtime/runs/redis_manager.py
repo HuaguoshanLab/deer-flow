@@ -24,10 +24,11 @@ from .schemas import DisconnectMode, RunStatus
 
 logger = logging.getLogger(__name__)
 
+# 默认 TTL（秒）
 # 成功/失败 run 在 Redis 中的保留时间（秒）
-_TERMINAL_TTL = 300
+_DEFAULT_TERMINAL_TTL = 300
 # 进行中 run 的最大保留时间，防止 Pod 崩溃后 key 永久残留（秒）
-_INFLIGHT_TTL = 3600
+_DEFAULT_INFLIGHT_TTL = 3600
 
 
 def _now_iso() -> str:
@@ -72,8 +73,16 @@ class RedisRunManager:
     本地内存中保存 asyncio.Task 和 abort_event，Redis 中保存可序列化的状态字段。
     """
 
-    def __init__(self, *, redis_url: str = "redis://localhost:6379/0") -> None:
+    def __init__(
+        self,
+        *,
+        redis_url: str = "redis://localhost:6379/0",
+        terminal_ttl_seconds: int = _DEFAULT_TERMINAL_TTL,
+        inflight_ttl_seconds: int = _DEFAULT_INFLIGHT_TTL,
+    ) -> None:
         self._redis_url = redis_url
+        self._terminal_ttl = terminal_ttl_seconds
+        self._inflight_ttl = inflight_ttl_seconds
         self._client: aioredis.Redis | None = None
         self._lock = asyncio.Lock()
         # 本地 Pod 持有的 run 记录（含 Task / abort_event）
@@ -229,7 +238,7 @@ class RedisRunManager:
         # 终态 run 设置 TTL
         if status in (RunStatus.success, RunStatus.error, RunStatus.timeout, RunStatus.interrupted):
             client = await self._get_client()
-            await client.expire(_run_key(run_id), _TERMINAL_TTL)
+            await client.expire(_run_key(run_id), self._terminal_ttl)
         logger.info("Run %s -> %s", run_id, status.value)
 
     async def cancel(self, run_id: str, *, action: str = "interrupt") -> bool:
@@ -263,7 +272,7 @@ class RedisRunManager:
         # 更新 Redis 状态
         now = _now_iso()
         await client.hset(_run_key(run_id), mapping={"status": RunStatus.interrupted, "updated_at": now})
-        await client.expire(_run_key(run_id), _TERMINAL_TTL)
+        await client.expire(_run_key(run_id), self._terminal_ttl)
         logger.info("Run %s 跨 Pod 取消广播 (action=%s)", run_id, action)
         return True
 
@@ -346,11 +355,11 @@ class RedisRunManager:
         await client.hset(key, mapping=mapping)
         # 进行中的 run 设置较长 TTL 防止 Pod 崩溃后 key 永久残留
         if record.status in (RunStatus.pending, RunStatus.running):
-            await client.expire(key, _INFLIGHT_TTL)
+            await client.expire(key, self._inflight_ttl)
         # 维护 thread → run_ids 索引
         await client.sadd(_thread_runs_key(record.thread_id), record.run_id)
         # Set 索引 TTL 与 run key 保持一致
-        await client.expire(_thread_runs_key(record.thread_id), _INFLIGHT_TTL)
+        await client.expire(_thread_runs_key(record.thread_id), self._inflight_ttl)
 
     async def _get_inflight_records(self, thread_id: str) -> list[RunRecord]:
         """获取 thread 下所有 pending/running 的 run 记录。"""

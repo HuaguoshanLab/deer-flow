@@ -89,6 +89,27 @@ async def test_terminal_status_sets_ttl(manager, fake_redis):
     assert ttl > 0
 
 
+@pytest.mark.anyio
+async def test_custom_ttl_from_config_applies_to_expire(fake_redis):
+    """自定义 TTL 参数应生效到 run key 过期时间。"""
+    manager = RedisRunManager(
+        redis_url="redis://localhost:6379/0",
+        terminal_ttl_seconds=123,
+        inflight_ttl_seconds=234,
+    )
+    manager._client = fake_redis
+
+    record = await manager.create("thread-1")
+    run_ttl = await fake_redis.ttl(f"run:{record.run_id}")
+    thread_ttl = await fake_redis.ttl("thread:runs:thread-1")
+    assert 0 < run_ttl <= 234
+    assert 0 < thread_ttl <= 234
+
+    await manager.set_status(record.run_id, RunStatus.success)
+    terminal_ttl = await fake_redis.ttl(f"run:{record.run_id}")
+    assert 0 < terminal_ttl <= 123
+
+
 # ---------------------------------------------------------------------------
 # cancel（本地）
 # ---------------------------------------------------------------------------

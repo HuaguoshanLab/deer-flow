@@ -40,7 +40,11 @@ async def langgraph_runtime(app: FastAPI) -> AsyncGenerator[None, None]:
             from deerflow.runtime.runs.redis_manager import RedisRunManager
 
             redis_url = bridge_config.redis_url or "redis://localhost:6379/0"
-            run_manager = RedisRunManager(redis_url=redis_url)
+            run_manager = RedisRunManager(
+                redis_url=redis_url,
+                terminal_ttl_seconds=bridge_config.terminal_ttl_seconds,
+                inflight_ttl_seconds=bridge_config.inflight_ttl_seconds,
+            )
             await run_manager.start()
             app.state.run_manager = run_manager
             try:

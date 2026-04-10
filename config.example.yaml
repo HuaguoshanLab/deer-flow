@@ -766,6 +766,10 @@ checkpointer:
 # stream_bridge:
 #   type: redis
 #   redis_url: redis://localhost:6379/0
+#   # RedisRunManager: 终态 run 保留时长（秒）
+#   terminal_ttl_seconds: 300
+#   # RedisRunManager: 进行中 run 与 thread 索引保留时长（秒）
+#   inflight_ttl_seconds: 3600
 
 # ============================================================================
 # IM Channels Configuration

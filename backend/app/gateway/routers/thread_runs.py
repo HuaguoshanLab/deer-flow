@@ -242,6 +242,9 @@ async def stream_existing_run(
     """
     run_mgr = get_run_manager(request)
     record = run_mgr.get(run_id)
+    # 本地未找到时尝试从 Redis 重建（跨 Pod 重连场景）
+    if record is None and hasattr(run_mgr, "get_remote"):
+        record = await run_mgr.get_remote(run_id)
     if record is None or record.thread_id != thread_id:
         raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
 

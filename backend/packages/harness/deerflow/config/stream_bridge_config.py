@@ -22,6 +22,16 @@ class StreamBridgeConfig(BaseModel):
         default=256,
         description="Maximum number of events buffered per run in the memory bridge.",
     )
+    terminal_ttl_seconds: int = Field(
+        default=300,
+        ge=1,
+        description="RedisRunManager 中终态 run 的保留时长（秒）。",
+    )
+    inflight_ttl_seconds: int = Field(
+        default=3600,
+        ge=1,
+        description="RedisRunManager 中进行中 run 和 thread 索引的保留时长（秒）。",
+    )
 
 
 # Global configuration instance — None means no stream bridge is configured

@@ -155,8 +155,19 @@ class RedisStreamBridge(StreamBridge):
         start_id: str,
         heartbeat_interval: float,
     ) -> AsyncIterator[StreamEvent]:
-        """通过 Pub/Sub 实时监听新事件，收到通知后用 XREAD 拉取。"""
-        current_start = start_id
+        """通过 Pub/Sub 实时监听新事件，收到通知后用 XREAD 拉取。
+
+        注意：XREAD 的 ID 语义与 XRANGE 不同：
+        - 不支持 "-"，从头读用 "0-0"
+        - 本身就是排他的（返回 ID > 给定值），不需要 "(id" 前缀
+        """
+        # 将 XRANGE 风格的 start_id 转换为 XREAD 兼容格式
+        if start_id == "-":
+            current_start = "0-0"
+        elif start_id.startswith("("):
+            current_start = start_id[1:]
+        else:
+            current_start = start_id
         while True:
             try:
                 message = await asyncio.wait_for(
@@ -185,7 +196,7 @@ class RedisStreamBridge(StreamBridge):
                         return
                     data = _parse_data(fields.get("data", ""))
                     yield StreamEvent(id=entry_id, event=event_name, data=data)
-                    current_start = f"({entry_id}"
+                    current_start = entry_id  # XREAD 用原始 ID，不加 "(" 前缀
 
     async def cleanup(self, run_id: str, *, delay: float = 0) -> None:
         """删除该 run 的 Redis Stream key，可选延迟。"""

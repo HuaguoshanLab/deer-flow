@@ -1,0 +1,189 @@
+# DeerFlow 多实例验证环境
+#
+# 验证 Gateway 模式（dev-pro）下多 Pod 部署的正确性：
+#   - 2 个 Gateway 实例（gateway-1 / gateway-2）共享 Postgres + Redis
+#   - Nginx 对两个实例做轮询负载均衡
+#   - 无 LangGraph Server（Gateway 模式，agent runtime 内嵌）
+#
+# 前置条件：
+#   1. Task 1-4 已实现（Postgres checkpointer/store + Redis StreamBridge/RunManager）
+#   2. config.yaml 已配置：
+#        checkpointer: { type: postgres, connection_string: postgresql://deerflow:deerflow@postgres:5432/deerflow }
+#        stream_bridge: { type: redis, redis_url: redis://redis:6379/0 }
+#
+# 启动：
+#   docker compose -f docker/docker-compose.multi-pod-test.yaml up --build
+#
+# 验收：
+#   1. 访问 http://localhost:2026，发起对话（由 gateway-1 或 gateway-2 处理）
+#   2. 刷新页面，thread 列表仍在（Store 跨实例共享）
+#   3. 重启任意 gateway 实例，对话状态不丢失（Checkpointer 持久化）
+#   4. 查看日志确认两个实例均有请求处理记录
+
+services:
+
+  # ── 基础设施 ────────────────────────────────────────────────────────────────
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: deer-flow-test-postgres
+    environment:
+      POSTGRES_USER: deerflow
+      POSTGRES_PASSWORD: deerflow
+      POSTGRES_DB: deerflow
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - deer-flow-test
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U deerflow"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    container_name: deer-flow-test-redis
+    command: redis-server --save "" --appendonly no
+    networks:
+      - deer-flow-test
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  # ── Gateway 实例 1 ──────────────────────────────────────────────────────────
+
+  gateway-1:
+    build:
+      context: ../
+      dockerfile: backend/Dockerfile
+      args:
+        APT_MIRROR: ${APT_MIRROR:-}
+        UV_IMAGE: ${UV_IMAGE:-ghcr.io/astral-sh/uv:0.7.20}
+        UV_INDEX_URL: ${UV_INDEX_URL:-https://mirrors.aliyun.com/pypi/simple}
+    container_name: deer-flow-test-gateway-1
+    # 单 worker：验证多实例而非多进程，便于日志区分
+    command: sh -c "cd backend && PYTHONPATH=. uv run uvicorn app.gateway.app:app --host 0.0.0.0 --port 8001 --workers 1"
+    volumes:
+      - ${DEER_FLOW_CONFIG_PATH}:/app/backend/config.yaml:ro
+      - ${DEER_FLOW_EXTENSIONS_CONFIG_PATH}:/app/backend/extensions_config.json:ro
+      - ../skills:/app/skills:ro
+      - ${DEER_FLOW_HOME}:/app/backend/.deer-flow
+      - ${DEER_FLOW_DOCKER_SOCKET:-/var/run/docker.sock}:/var/run/docker.sock
+    working_dir: /app
+    environment:
+      - CI=true
+      - POD_NAME=gateway-1
+      - DEER_FLOW_HOME=/app/backend/.deer-flow
+      - DEER_FLOW_CONFIG_PATH=/app/backend/config.yaml
+      - DEER_FLOW_EXTENSIONS_CONFIG_PATH=/app/backend/extensions_config.json
+      - DEER_FLOW_HOST_BASE_DIR=${DEER_FLOW_HOME}
+      - DEER_FLOW_HOST_SKILLS_PATH=${DEER_FLOW_REPO_ROOT:-..}/skills
+      - DEER_FLOW_SANDBOX_HOST=host.docker.internal
+    env_file:
+      - ../.env
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - deer-flow-test
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ── Gateway 实例 2 ──────────────────────────────────────────────────────────
+
+  gateway-2:
+    build:
+      context: ../
+      dockerfile: backend/Dockerfile
+      args:
+        APT_MIRROR: ${APT_MIRROR:-}
+        UV_IMAGE: ${UV_IMAGE:-ghcr.io/astral-sh/uv:0.7.20}
+        UV_INDEX_URL: ${UV_INDEX_URL:-https://mirrors.aliyun.com/pypi/simple}
+    container_name: deer-flow-test-gateway-2
+    command: sh -c "cd backend && PYTHONPATH=. uv run uvicorn app.gateway.app:app --host 0.0.0.0 --port 8001 --workers 1"
+    volumes:
+      - ${DEER_FLOW_CONFIG_PATH}:/app/backend/config.yaml:ro
+      - ${DEER_FLOW_EXTENSIONS_CONFIG_PATH}:/app/backend/extensions_config.json:ro
+      - ../skills:/app/skills:ro
+      - ${DEER_FLOW_HOME}:/app/backend/.deer-flow
+      - ${DEER_FLOW_DOCKER_SOCKET:-/var/run/docker.sock}:/var/run/docker.sock
+    working_dir: /app
+    environment:
+      - CI=true
+      - POD_NAME=gateway-2
+      - DEER_FLOW_HOME=/app/backend/.deer-flow
+      - DEER_FLOW_CONFIG_PATH=/app/backend/config.yaml
+      - DEER_FLOW_EXTENSIONS_CONFIG_PATH=/app/backend/extensions_config.json
+      - DEER_FLOW_HOST_BASE_DIR=${DEER_FLOW_HOME}
+      - DEER_FLOW_HOST_SKILLS_PATH=${DEER_FLOW_REPO_ROOT:-..}/skills
+      - DEER_FLOW_SANDBOX_HOST=host.docker.internal
+    env_file:
+      - ../.env
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - deer-flow-test
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ── Frontend ────────────────────────────────────────────────────────────────
+
+  frontend:
+    build:
+      context: ../
+      dockerfile: frontend/Dockerfile
+      target: prod
+      args:
+        PNPM_STORE_PATH: ${PNPM_STORE_PATH:-/root/.local/share/pnpm/store}
+        NPM_REGISTRY: ${NPM_REGISTRY:-}
+    container_name: deer-flow-test-frontend
+    environment:
+      - BETTER_AUTH_SECRET=${BETTER_AUTH_SECRET:-test-secret-for-local-validation}
+      # Gateway 模式：前端 langgraph 请求走 /api/langgraph-compat → nginx → gateway
+      - NEXT_PUBLIC_LANGGRAPH_BASE_URL=/api/langgraph-compat
+      - DEER_FLOW_INTERNAL_GATEWAY_BASE_URL=http://nginx:2026
+      - DEER_FLOW_INTERNAL_LANGGRAPH_BASE_URL=http://nginx:2026/api/langgraph-compat
+    env_file:
+      - ../frontend/.env
+    networks:
+      - deer-flow-test
+    depends_on:
+      - gateway-1
+      - gateway-2
+    restart: unless-stopped
+
+  # ── Nginx：轮询两个 Gateway 实例 ────────────────────────────────────────────
+
+  nginx:
+    image: nginx:alpine
+    container_name: deer-flow-test-nginx
+    ports:
+      - "${PORT:-2026}:2026"
+    volumes:
+      - ./nginx/nginx.multi-pod-test.conf:/etc/nginx/nginx.conf:ro
+    networks:
+      - deer-flow-test
+    depends_on:
+      - gateway-1
+      - gateway-2
+      - frontend
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+
+networks:
+  deer-flow-test:
+    driver: bridge
